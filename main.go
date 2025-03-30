@@ -29,12 +29,16 @@ import (
 type ReplicubeApp struct {
 	G3NApp *app.Application
 	Scene *core.Node
+	Renderer *renderer.Renderer
+
 	Elements map[string]core.INode
 	Materials map[string]material.IMaterial
-	Renderer *renderer.Renderer
-	LuaState *lua.State
-	CubeCurrentRotation float32
 	BasePositions map[string]*math32.Vector3
+	
+	LuaState *lua.State
+
+	CubeCurrentRotation float32
+	CubeCount uint
 }
 
 func (a ReplicubeApp) Register(name string, node core.INode) {
@@ -72,14 +76,14 @@ func setupEvents(app *ReplicubeApp) {
 	// })
 }
 
-func createCubeOfCubes(app *ReplicubeApp, ncubes uint, size, gap float32) {
+func createCubeOfCubes(app *ReplicubeApp, size, gap float32) {
 	// i create a node cubeOfCubes
     parent := core.NewNode()
     parent.SetName("cubeOfCubes")
     app.Register("cubeOfCubes", parent)
 
 	// caclulate realsize and stuff
-    totalSize := float32(ncubes)*(size+gap) - gap
+    totalSize := float32(app.CubeCount)*(size+gap) - gap
     halfTotal := totalSize / 2
 
     // mat := material.NewStandard(math32.NewColor("LightGray"))
@@ -89,9 +93,9 @@ func createCubeOfCubes(app *ReplicubeApp, ncubes uint, size, gap float32) {
         app.BasePositions = make(map[string]*math32.Vector3)
     }
 
-    for x := uint(0); x < ncubes; x++ {
-        for y := uint(0); y < ncubes; y++ {
-            for z := uint(0); z < ncubes; z++ {
+    for x := uint(0); x < app.CubeCount; x++ {
+        for y := uint(0); y < app.CubeCount; y++ {
+            for z := uint(0); z < app.CubeCount; z++ {
 				// create a cube and a cube name
                 geom := geometry.NewCube(size)
                 name := fmt.Sprintf("cube %d %d %d", x, y, z)
@@ -115,7 +119,7 @@ func createCubeOfCubes(app *ReplicubeApp, ncubes uint, size, gap float32) {
 
 func setupInstances(app *ReplicubeApp) {
 	// create the cube stuff
-	createCubeOfCubes(app, 5, 0.2, 0.01)
+	createCubeOfCubes(app, 0.2, 0.01)
 
 	// create a camera
 	cam := camera.New(1)
@@ -148,50 +152,52 @@ func setupLuaState(app *ReplicubeApp) {
 
 // the lua fetching functions
 
-func fetchStepForMiniCubeLua(app *ReplicubeApp, pos *math32.Vector3) {
-	app.LuaState.PushInteger(int(pos.X))
+func fetchStepForMiniCubeLua(app *ReplicubeApp, x, y, z int) {
+	app.LuaState.PushInteger(x)
 	app.LuaState.SetGlobal("x")
-	app.LuaState.PushInteger(int(pos.Y))
+	app.LuaState.PushInteger(y)
 	app.LuaState.SetGlobal("y")
-	app.LuaState.PushInteger(int(pos.Z))
+	app.LuaState.PushInteger(z)
 	app.LuaState.SetGlobal("z")
 }
 
 func fetchReplicubeLua(app *ReplicubeApp, filename string) {
-	// have pos (vector3.zero for now)
-	pos := &math32.Vector3{}
-
-	// give x, y and z
-	fetchStepForMiniCubeLua(app, pos)
-
-	// check for errors in the file
-	if err := lua.DoFile(app.LuaState, filename); err != nil {
-		return
-	}
 	defer app.LuaState.SetTop(0)
+	for x := range int(app.CubeCount) {
+        for y := range int(app.CubeCount) {
+            for z := range int(app.CubeCount) {
+				// fmt.Println("hello")
+				// give x, y and z
+				i := -int((app.CubeCount - 1) / 2)
+				fetchStepForMiniCubeLua(app, i + x, i + y, i + z)
 
-	// check for 1 return value
-	if app.LuaState.Top() != 1 {
-		return
-	}
+				// check for errors in the file
+				if err := lua.DoFile(app.LuaState, filename); err != nil {
+					continue
+				}
 
-	// everything ok, try to get the userdata
-	col, ok := app.LuaState.ToUserData(1).(*math32.Color)
-	if !ok {
-		return
-	}
-	_ = col
+				// check for 1 return value
+				// if app.LuaState.Top() != 1 {
+				// 	continue
+				// }
 
-	fmt.Println("prout")
-	
-	// try to get my material of cube
-	cubeMatName := fmt.Sprintf("cube %d %d %d", uint(pos.X), uint(pos.Y), uint(pos.Z))
-	mat, ok := app.Materials[cubeMatName].(*material.Standard)
-	if !ok {
-		return
+				// everything ok, try to get the userdata
+				col, ok := app.LuaState.ToUserData(-1).(*math32.Color)
+				if !ok {
+					continue
+				}
+				_ = col
+
+				// try to get my material of cube
+				cubeMatName := fmt.Sprintf("cube %d %d %d", x, y, z)
+				mat, ok := app.Materials[cubeMatName].(*material.Standard)
+				if !ok {
+					continue
+				}
+				mat.SetColor(col)
+			}
+		}
 	}
-	fmt.Println("mega prout", col)
-	mat.SetColor(col)
 }
 
 func fsLuaWatcherThread(watcher *fsnotify.Watcher, app *ReplicubeApp) {
@@ -288,6 +294,7 @@ func main() {
 		Elements: map[string]core.INode{},
 		Materials: map[string]material.IMaterial{},
 		LuaState: lua.NewState(),
+		CubeCount: 5,
 	}
 
 	setupInstances(app)
