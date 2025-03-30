@@ -4,6 +4,7 @@ import (
 	// "fmt"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/g3n/engine/app"
@@ -136,18 +137,20 @@ func setupInstances(app *ReplicubeApp) {
 
 func setupLuaState(app *ReplicubeApp) {
 	lua.OpenLibraries(app.LuaState)
-	m := map[string]*math32.Color {
-		"red": 		{R:1, G:0, B:0},
-		"blue": 	{R:0, G:0, B:1},
-		"green": 	{R:0, G:1, B:0},
-		"yellow": 	{R:1, G:1, B:0},
-		"black": 	{R:0, G:0, B:0},
-		"white": 	{R:1, G:1, B:1},
+	m := map[string]*math32.Color4 {
+		"red": 			{R:1, G:0, B:0, A:1},
+		"blue": 		{R:0, G:0, B:1, A:1},
+		"green": 		{R:0, G:1, B:0, A:1},
+		"yellow": 		{R:1, G:1, B:0, A:1},
+		"black": 		{R:0, G:0, B:0, A:1},
+		"white": 		{R:1, G:1, B:1, A:1},
+		"transparent": 	{R:1, G:0, B:0, A:0},
 	}
 	for k, v := range m {
 		app.LuaState.PushUserData(v)
 		app.LuaState.SetGlobal(k)
 	}
+	fmt.Println(app.LuaState.Top())
 }
 
 // the lua fetching functions
@@ -173,7 +176,7 @@ func fetchReplicubeLua(app *ReplicubeApp, filename string) {
 
 				// check for errors in the file
 				if err := lua.DoFile(app.LuaState, filename); err != nil {
-					continue
+					return
 				}
 
 				// check for 1 return value
@@ -182,7 +185,7 @@ func fetchReplicubeLua(app *ReplicubeApp, filename string) {
 				// }
 
 				// everything ok, try to get the userdata
-				col, ok := app.LuaState.ToUserData(-1).(*math32.Color)
+				col, ok := app.LuaState.ToUserData(-1).(*math32.Color4)
 				if !ok {
 					continue
 				}
@@ -194,7 +197,10 @@ func fetchReplicubeLua(app *ReplicubeApp, filename string) {
 				if !ok {
 					continue
 				}
-				mat.SetColor(col)
+				colRGB := col.ToColor()
+				mat.SetColor(&colRGB)
+				mat.SetOpacity(col.A)
+				mat.SetDepthMask(col.A != 0)
 			}
 		}
 	}
@@ -288,6 +294,10 @@ func giveAppCallback(app *ReplicubeApp, f func(*ReplicubeApp, time.Duration)) fu
 }
 
 func main() {
+	if len(os.Args) != 2 {
+		fmt.Println("USAGE: ./myreplicube <lua file to watch>")
+		os.Exit(1)
+	}
 	app := &ReplicubeApp{
 		G3NApp: app.App(),
 		Scene: core.NewNode(),
@@ -300,7 +310,8 @@ func main() {
 	setupInstances(app)
 	setupEvents(app)
 	setupLuaState(app)
-	watcher, err := startLuaFileListener(app, "replicube.lua")
+
+	watcher, err := startLuaFileListener(app, os.Args[1])
 	if err != nil {
 		log.Fatal(err)
 	}
