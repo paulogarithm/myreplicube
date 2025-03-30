@@ -306,6 +306,7 @@ func main() {
 		LuaState: lua.NewState(),
 		CubeCount: 5,
 	}
+	app.G3NApp.Gls().ClearColor(0.678, 0.847, 0.902, 1.0)
 
 	setupInstances(app)
 	setupEvents(app)
@@ -316,6 +317,6 @@ func main() {
 		log.Fatal(err)
 	}
 	defer watcher.Close()
-
+	
 	app.G3NApp.Run(giveAppCallback(app, renderStepped))
 }
