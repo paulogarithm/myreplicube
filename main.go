@@ -33,7 +33,7 @@ type ReplicubeApp struct {
 	Materials map[string]material.IMaterial
 	Renderer *renderer.Renderer
 	LuaState *lua.State
-	CubeRotation float32
+	CubeCurrentRotation float32
 	BasePositions map[string]*math32.Vector3
 }
 
@@ -82,8 +82,8 @@ func createCubeOfCubes(app *ReplicubeApp, ncubes uint, size, gap float32) {
     totalSize := float32(ncubes)*(size+gap) - gap
     halfTotal := totalSize / 2
 
-    mat := material.NewStandard(math32.NewColor("LightGray"))
-    app.Materials["cubeMaterial"] = mat
+    // mat := material.NewStandard(math32.NewColor("LightGray"))
+    // app.Materials["cubeMaterial"] = mat
 
     if app.BasePositions == nil {
         app.BasePositions = make(map[string]*math32.Vector3)
@@ -92,17 +92,19 @@ func createCubeOfCubes(app *ReplicubeApp, ncubes uint, size, gap float32) {
     for x := uint(0); x < ncubes; x++ {
         for y := uint(0); y < ncubes; y++ {
             for z := uint(0); z < ncubes; z++ {
+				// create a cube and a cube name
                 geom := geometry.NewCube(size)
-                mesh := graphic.NewMesh(geom, mat)
-
+                name := fmt.Sprintf("cube %d %d %d", x, y, z)
+				app.Materials[name] = material.NewStandard(math32.NewColor("LightGray"))
+                mesh := graphic.NewMesh(geom, app.Materials[name])
+				
                 // i compute the position so that the structure is centered at (0,0,0)
                 posX := float32(x)*(size+gap) - halfTotal + size/2
                 posY := float32(y)*(size+gap) - halfTotal + size/2
                 posZ := float32(z)*(size+gap) - halfTotal + size/2
                 mesh.SetPosition(posX, posY, posZ)
 
-                // i give each mesh a unique name and put it in the cube of cubes
-                name := fmt.Sprintf("cube_%d_%d_%d", x, y, z)
+                // i put it in the cube of cubes
                 mesh.SetName(name)
                 parent.Add(mesh)
                 app.BasePositions[name] = math32.NewVector3(posX, posY, posZ)
@@ -146,7 +148,22 @@ func setupLuaState(app *ReplicubeApp) {
 
 // the lua fetching functions
 
+func fetchStepForMiniCubeLua(app *ReplicubeApp, pos *math32.Vector3) {
+	app.LuaState.PushInteger(int(pos.X))
+	app.LuaState.SetGlobal("x")
+	app.LuaState.PushInteger(int(pos.Y))
+	app.LuaState.SetGlobal("y")
+	app.LuaState.PushInteger(int(pos.Z))
+	app.LuaState.SetGlobal("z")
+}
+
 func fetchReplicubeLua(app *ReplicubeApp, filename string) {
+	// have pos (vector3.zero for now)
+	pos := &math32.Vector3{}
+
+	// give x, y and z
+	fetchStepForMiniCubeLua(app, pos)
+
 	// check for errors in the file
 	if err := lua.DoFile(app.LuaState, filename); err != nil {
 		return
@@ -163,12 +180,17 @@ func fetchReplicubeLua(app *ReplicubeApp, filename string) {
 	if !ok {
 		return
 	}
+	_ = col
 
+	fmt.Println("prout")
+	
 	// try to get my material of cube
-	mat, ok := app.Materials["cubeMaterial"].(*material.Standard)
+	cubeMatName := fmt.Sprintf("cube %d %d %d", uint(pos.X), uint(pos.Y), uint(pos.Z))
+	mat, ok := app.Materials[cubeMatName].(*material.Standard)
 	if !ok {
 		return
 	}
+	fmt.Println("mega prout", col)
 	mat.SetColor(col)
 }
 
@@ -248,14 +270,8 @@ func renderStepped(app *ReplicubeApp, dt time.Duration) {
 	app.G3NApp.Gls().Clear(gls.DEPTH_BUFFER_BIT | gls.STENCIL_BUFFER_BIT | gls.COLOR_BUFFER_BIT)
 	defer app.Renderer.Render(app.Scene, app.Elements["cam"].(*camera.Camera))
 
-	// make the cube rotate
-	// cube, ok := app.Elements["cubeOfCubes"].(*graphic.Mesh)
-	// if !ok {
-	// 	log.Fatal("cant cast to cube of cubes")
-	// }
-	app.CubeRotation += 0.001
-	rotateCubeXYZ(app, math32.Vector3{X:0, Y:app.CubeRotation, Z:0})
-	// cube.RotateY(0.001)
+	app.CubeCurrentRotation += 0.01
+	rotateCubeXYZ(app, math32.Vector3{X:0, Y:app.CubeCurrentRotation, Z:0})
 }
 
 func giveAppCallback(app *ReplicubeApp, f func(*ReplicubeApp, time.Duration)) func(*renderer.Renderer, time.Duration) {

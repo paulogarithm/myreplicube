@@ -1,1 +1,2 @@
-return blue
+print(x)
+return red
