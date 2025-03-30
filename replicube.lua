@@ -1,1 +1,1 @@
-return red
+return blue

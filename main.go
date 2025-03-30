@@ -33,6 +33,8 @@ type ReplicubeApp struct {
 	Materials map[string]material.IMaterial
 	Renderer *renderer.Renderer
 	LuaState *lua.State
+	CubeRotation float32
+	BasePositions map[string]*math32.Vector3
 }
 
 func (a ReplicubeApp) Register(name string, node core.INode) {
@@ -41,30 +43,6 @@ func (a ReplicubeApp) Register(name string, node core.INode) {
 }
 
 // the setup functions
-
-func setupInstances(app *ReplicubeApp) {
-	// create the cube stuff
-	geom := geometry.NewCube(1)
-	mat := material.NewStandard(math32.NewColor("LightGray"))
-	app.Materials["cubeMaterial"] = mat
-
-	// create the cube mesh
-	mesh := graphic.NewMesh(geom, mat)
-	meshPos := mesh.Position()
-	app.Register("cubeMesh", mesh)
-
-	// create a camera
-	cam := camera.New(1)
-	cam.SetPosition(0, 2, 3)
-	cam.LookAt(&meshPos, &math32.Vector3{X:0, Y:1, Z:0})
-	app.Register("cam", cam)
-	
-	// create lights
-	app.Register("ambientLight", light.NewAmbient(&math32.Color{R:1.0, G:1.0, B:1.0}, 0.8))
-	pointLight := light.NewPoint(&math32.Color{R:1, G:1, B:1}, 5.0)
-	pointLight.SetPosition(1, 0, 2)
-	app.Register("pointLight", pointLight)
-}
 
 func setupEvents(app *ReplicubeApp) {
 	// when the window is resized
@@ -92,6 +70,62 @@ func setupEvents(app *ReplicubeApp) {
 	// 		app.Materials["cubeMaterial"].(*material.Standard).SetColor(math32.NewColor("Red"))
 	// 	}
 	// })
+}
+
+func createCubeOfCubes(app *ReplicubeApp, ncubes uint, size, gap float32) {
+	// i create a node cubeOfCubes
+    parent := core.NewNode()
+    parent.SetName("cubeOfCubes")
+    app.Register("cubeOfCubes", parent)
+
+	// caclulate realsize and stuff
+    totalSize := float32(ncubes)*(size+gap) - gap
+    halfTotal := totalSize / 2
+
+    mat := material.NewStandard(math32.NewColor("LightGray"))
+    app.Materials["cubeMaterial"] = mat
+
+    if app.BasePositions == nil {
+        app.BasePositions = make(map[string]*math32.Vector3)
+    }
+
+    for x := uint(0); x < ncubes; x++ {
+        for y := uint(0); y < ncubes; y++ {
+            for z := uint(0); z < ncubes; z++ {
+                geom := geometry.NewCube(size)
+                mesh := graphic.NewMesh(geom, mat)
+
+                // i compute the position so that the structure is centered at (0,0,0)
+                posX := float32(x)*(size+gap) - halfTotal + size/2
+                posY := float32(y)*(size+gap) - halfTotal + size/2
+                posZ := float32(z)*(size+gap) - halfTotal + size/2
+                mesh.SetPosition(posX, posY, posZ)
+
+                // i give each mesh a unique name and put it in the cube of cubes
+                name := fmt.Sprintf("cube_%d_%d_%d", x, y, z)
+                mesh.SetName(name)
+                parent.Add(mesh)
+                app.BasePositions[name] = math32.NewVector3(posX, posY, posZ)
+            }
+        }
+    }
+}
+
+func setupInstances(app *ReplicubeApp) {
+	// create the cube stuff
+	createCubeOfCubes(app, 5, 0.2, 0.01)
+
+	// create a camera
+	cam := camera.New(1)
+	cam.SetPosition(0, 2, 3)
+	cam.LookAt(&math32.Vector3{}, &math32.Vector3{X:0, Y:1, Z:0})
+	app.Register("cam", cam)
+	
+	// create lights
+	app.Register("ambientLight", light.NewAmbient(&math32.Color{R:1.0, G:1.0, B:1.0}, 0.8))
+	pointLight := light.NewPoint(&math32.Color{R:1, G:1, B:1}, 5.0)
+	pointLight.SetPosition(1, 0, 2)
+	app.Register("pointLight", pointLight)
 }
 
 func setupLuaState(app *ReplicubeApp) {
@@ -177,16 +211,51 @@ func startLuaFileListener(app *ReplicubeApp, filename string) (*fsnotify.Watcher
 
 // the main functions
 
+func rotateCubeXYZ(app *ReplicubeApp, rotation math32.Vector3) {
+    // Get the parent node ("cubeOfCubes")
+    parent, exists := app.Elements["cubeOfCubes"]
+    if !exists {
+        fmt.Println("Error: cubeOfCubes node not found!")
+        return
+    }
+
+    // Create a rotation matrix using Euler angles.
+    rotMat := math32.NewMatrix4().MakeRotationFromEuler(&rotation)
+
+    // Iterate over all children of the parent.
+    for _, child := range parent.Children() {
+        mesh, ok := child.(*graphic.Mesh)
+        if !ok {
+            continue
+        }
+        name := mesh.Name()
+        basePos, exists := app.BasePositions[name]
+        if !exists {
+            continue
+        }
+        // Compute the new position by rotating the base position.
+        newPos := basePos.Clone().ApplyMatrix4(rotMat)
+        mesh.SetPositionVec(newPos)
+
+        // Optionally, also update the mesh’s orientation so that the faces follow the group rotation.
+        // Here we set the rotation directly. Adjust as needed if you want cumulative rotation.
+        mesh.SetRotation(rotation.X, rotation.Y, rotation.Z)
+    }
+}
+
+
 func renderStepped(app *ReplicubeApp, dt time.Duration) {
 	app.G3NApp.Gls().Clear(gls.DEPTH_BUFFER_BIT | gls.STENCIL_BUFFER_BIT | gls.COLOR_BUFFER_BIT)
 	defer app.Renderer.Render(app.Scene, app.Elements["cam"].(*camera.Camera))
 
 	// make the cube rotate
-	cube, ok := app.Elements["cubeMesh"].(*graphic.Mesh)
-	if !ok {
-		log.Fatal("cant cast to cube")
-	}
-	cube.RotateY(0.001)
+	// cube, ok := app.Elements["cubeOfCubes"].(*graphic.Mesh)
+	// if !ok {
+	// 	log.Fatal("cant cast to cube of cubes")
+	// }
+	app.CubeRotation += 0.001
+	rotateCubeXYZ(app, math32.Vector3{X:0, Y:app.CubeRotation, Z:0})
+	// cube.RotateY(0.001)
 }
 
 func giveAppCallback(app *ReplicubeApp, f func(*ReplicubeApp, time.Duration)) func(*renderer.Renderer, time.Duration) {
