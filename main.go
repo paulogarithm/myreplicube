@@ -180,27 +180,28 @@ func fetchReplicubeLua(app *ReplicubeApp, filename string) {
 				}
 
 				// check for 1 return value
-				// if app.LuaState.Top() != 1 {
-				// 	continue
-				// }
-
-				// everything ok, try to get the userdata
-				col, ok := app.LuaState.ToUserData(-1).(*math32.Color4)
-				if !ok {
-					continue
+				var col *math32.Color4
+				if app.LuaState.Top() != 1 {
+					col = &math32.Color4{}
+				} else {
+					var ok bool
+					col, ok = app.LuaState.ToUserData(-1).(*math32.Color4)
+					if !ok {
+						continue
+					}
 				}
-				_ = col
 
 				// try to get my material of cube
 				cubeMatName := fmt.Sprintf("cube %d %d %d", x, y, z)
 				mat, ok := app.Materials[cubeMatName].(*material.Standard)
 				if !ok {
-					continue
+					return
 				}
 				colRGB := col.ToColor()
 				mat.SetColor(&colRGB)
 				mat.SetOpacity(col.A)
 				mat.SetDepthMask(col.A != 0)
+				app.LuaState.SetTop(0)
 			}
 		}
 	}
@@ -317,6 +318,6 @@ func main() {
 		log.Fatal(err)
 	}
 	defer watcher.Close()
-	
+
 	app.G3NApp.Run(giveAppCallback(app, renderStepped))
 }

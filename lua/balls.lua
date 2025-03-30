@@ -1,7 +1,7 @@
 -- big balls
 
 if math.sqrt(x*x+y*y+z*z) > 2.3 then
-    return transparent
+    return
 end
 
 return red
